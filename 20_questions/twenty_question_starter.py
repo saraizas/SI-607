@@ -31,6 +31,10 @@ class TwentyQuestions:
         bool
             True if the input is an affirmative response ('y', 'yes', 'yup', 'sure'), else False.
         """
+        for i in userIn:
+            if i.isalpha() == False:
+                return False
+        return userIn.lower() in ["y", "yes", "yup", "sure"]
 
     def checkIfLeaf(self, curNode):
         """
@@ -46,6 +50,10 @@ class TwentyQuestions:
         bool
             True if the node is a leaf (both children are None), else False.
         """
+        for cur in curNode:
+            if cur is not None:
+                return False
+        return True
 
     def simplePlay(self, curNode):
         """
@@ -61,6 +69,7 @@ class TwentyQuestions:
         bool
             True if the player successfully guesses the item, else False.
         """
+        
 
     def createNode(self, userQuestion: str, userAnswer: str, isCorrectForQues: bool, curNode: tuple):
         """
