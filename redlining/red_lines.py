@@ -2,10 +2,16 @@ import numpy as np
 import json
 import os
 
+import random
+random.seed(17)
+
+with open('redlines_data.json') as f:
+    redline = json.load(f)
+
 class DetroitDistrict:
     """
     A class representing a district in Detroit with attributes related to historical redlining.
-    coordinates,holcGrade,holcColor,id,description should be load from the redLine data file
+    coordinates, HOLCGrade, HOLCColor, id, description should be loaded from the redLine data file
     if cache is not available
 
     Parameters 
@@ -57,13 +63,28 @@ class DetroitDistrict:
     self.randomLat 
     self.randomLong 
     self.medIncome 
-    self.censusTract 
-
-
+    self.censusTract
     """
     def __init__(self, coordinates, holcGrade, id, description, holcColor = None, randomLat=None, randomLong=None, medIncome=None, censusTract=None):
-        pass
-
+        self.coordinates = coordinates
+        self.holcGrade = holcGrade
+        self.id = id
+        self.description = description
+        self.randomLat = randomLat
+        self.randomLong = randomLong
+        self.medIncome = medIncome
+        self.censusTract = censusTract
+        if holcColor is None:
+            if holcGrade == 'A':
+                self.holcColor = 'darkgreen'
+            elif holcGrade == 'B':
+                self.holcColor = 'cornflowerblue'
+            elif holcGrade == 'C':
+                self.holcColor = 'gold'
+            elif holcGrade == 'D':
+                self.holcColor = 'maroon'
+        else:
+            self.holcColor = holcColor
 
 
 class RedLines:
@@ -82,8 +103,9 @@ class RedLines:
         Initializes the RedLines class without any districts.
         assign districts attribute to an empty list
         """
-        pass
-        
+        self.districts = []
+        if cacheFile:
+            self.loadCache(cacheFile)
 
     def createDistricts(self, fileName):
         """
@@ -100,21 +122,33 @@ class RedLines:
 
         Hint
         ----------
-        The data for description attribute could be from  
+        The data for description attribute could be from
         one of the dict key with only number.
 
         """
-        f = open(fileName)
-        data = json.load(f)
-        f.close()
-        pass
+        with open(fileName, 'r') as f:
+            redline_data = json.load(f)
+
+        for i in range(len(redline_data)):
+            if str(i) in redline_data:
+                self.districts.append(DetroitDistrict(redline_data[str(i)]['coordinates'], redline_data[str(i)]['holcGrade'], str(i), redline_data[str(i)]['description'], redline_data[str(i)].get('holcColor')))
+            else:
+                print(f"Key {str(i)} not found in redline_data")
 
     def plotDistricts(self):
         """
         Plots the districts using matplotlib, displaying each district's location and color.
-        Name it redlines_graph.png and save it to the current directory. 
+        Name it redlines_graph.png and save it to the current directory.
         """
-        pass
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib
+
+        fig, ax = plt.subplots()
+        for district in self.districts:
+            for coord in district.coordinates:
+                plt.plot(coord[0], coord[1], color=district.holcColor)
+        plt.savefig('redlines_graph.png')
 
     def generateRandPoint(self):
         """
@@ -134,9 +168,33 @@ class RedLines:
         This method assumes the 'self.districts' attribute has been populated with DetroitDistrict instances.
 
         """
-        pass
-  
+        import random as random
+        from matplotlib.path import Path
+        import numpy as np 
         
+        # for district in self.districts:
+        #     x = [coord[0] for coord in district.coordinates]
+        #     y = [coord[1] for coord in district.coordinates]
+        #     x_min, x_max = min(x), max(x)
+        #     y_min, y_max = min(y), max(y)
+        #     while True:
+        #         randomLat = random.uniform(x_min, x_max)
+        #         randomLong = random.uniform(y_min, y_max)
+        #         if self.isInside([randomLat, randomLong], district.coordinates):
+        #             district.randomLat = randomLat
+        #             district.randomLong = randomLong
+        #             break
+
+        xgrid = np.arange(-83.5, -82.8, 0.004)
+        ygrid = np.arange(42.1, 42.6, 0.004)
+        xmesh, ymesh = np.meshgrid(xgrid, ygrid)
+        points = np.vstack((xmesh.flatten(), ymesh.flatten())).T
+        for district in self.districts:
+            p = Path(district.coordinates[0])
+            grid = p.contains_points(points)
+            point = points[random.choice(list(np.where(grid)[0]))]
+            district.randomLong, district.randomLat = point
+
     def fetchCensus(self):
 
         """
@@ -156,7 +214,7 @@ class RedLines:
         In the api call, check if the response.status_code is 200.
         If not, it might indicate the api call made is not correct, check your api call parameters.
 
-        If you get status_code 200 and other code alternativly, it could indicate the fcc webiste is not 
+        If you get status_code 200 and other code alternatively, it could indicate the fcc website is not 
         stable. Using a while loop to make anther api request in fetch function, until you get the correct result. 
 
         Important
@@ -166,10 +224,21 @@ class RedLines:
         'lat': xxx,'lon': xxx,'censusYear': xxx
 
         """
+        import requests
+        for district in self.districts:
+            params = {
+                'lat': district.randomLat,
+                'lon': district.randomLong,
+                'censusYear': 2018,
+                'format': 'json'
+            }
+            response = requests.get("https://geo.fcc.gov/api/census/area", params=params)
+            while response.status_code != 200:
+                response = requests.get("https://geo.fcc.gov/api/census/area", params=params)
+            district.censusTract = response.json()['results'][0]['block_fips'][0:11]
 
-        
-
-        pass
+        # Update the district's censusTract attribute
+            district.censusTract = response.json()['results'][0]['block_fips'][0:11]
 
     def fetchIncome(self):
 
@@ -187,8 +256,30 @@ class RedLines:
         is not available or is negative, the median income is set to 0.
 
         """
-        
-        pass
+        import requests
+        for district in self.districts:
+            # Prepare the API request parameters
+            params = {
+                'get': 'B19013_001E',
+                'for': 'tract:' + district.censusTract,
+                'in': 'state:26',  # Michigan state code
+                'key': 'YOUR_API_KEY'  # Replace 'YOUR_API_KEY' with census key when you get email
+            }
+
+            # Make the API request
+            response = requests.get("https://api.census.gov/data/2018/acs/acs5", params=params)
+            if response.status_code == 200:
+                data = response.json()
+                try:
+                    median_income = int(data[1][0])
+                    if median_income < 0:
+                        district.medIncome = 0
+                    else:
+                        district.medIncome = median_income
+                except (KeyError, IndexError):
+                    district.medIncome = 0
+            else:
+                print("Error fetching income data for district:", district.id)
 
     def cacheData(self, fileName):
         """
@@ -204,7 +295,9 @@ class RedLines:
             The name of the file where the district data will be saved.
         """
         
-        pass
+        data_to_cache = [district.__dict__ for district in self.districts]
+        with open(fileName, 'w') as f:
+            json.dump(data_to_cache, f)
 
     def loadCache(self, fileName):
         """
@@ -221,7 +314,13 @@ class RedLines:
         bool
             True if the data was successfully loaded, False otherwise.
         """
-        pass
+        if os.path.exists(fileName):
+            with open(fileName, 'r') as f:
+                cached_data = json.load(f)
+            self.districts = [DetroitDistrict(**data) for data in cached_data]
+            return True
+        else:
+            return False
 
     def calcIncomeStats(self):
         """
@@ -239,8 +338,22 @@ class RedLines:
         list
             A list containing mean and median income values for each district grade in the order A, B, C, D.
         """
-        pass
-
+        grade_incomes = {'A': [], 'B': [], 'C': [], 'D': []}
+        for district in self.districts:
+            if district.medIncome is not None:
+                grade_incomes[district.holcGrade].append(district.medIncome)
+        
+        income_stats = []
+        for grade, incomes in grade_incomes.items():
+            if incomes:
+                mean_income = round(np.mean(incomes))
+                median_income = round(np.median(incomes))
+            else:
+                mean_income = 0
+                median_income = 0
+            income_stats.extend([mean_income, median_income])
+        
+        return income_stats
 
     def findCommonWords(self):
         """
@@ -267,11 +380,22 @@ class RedLines:
         - Counter from collections could also be used.
 
         """
+        from collections import Counter
+        import re
         # List of common filler words to exclude, you could add more if needed.
         filler_words = set(['the', 'of', 'and', 'in', 'to', 'a', 'is', 'for', 'on', 'that'])
+        grade_descriptions = {'A': [], 'B': [], 'C': [], 'D': []}
 
-        pass
-    
+        for district in self.districts:
+            grade_descriptions[district.holcGrade].append(district.description.lower())
+
+        common_words_by_grade = {}
+        for grade, descriptions in grade_descriptions.items():
+            words = ' '.join(descriptions).split()
+            words_count = Counter(words)
+            filtered_words_count = {word: count for word, count in words_count.items() if word not in filler_words}
+            common_words_by_grade[grade] = [word for word, _ in filtered_words_count.most_common(10)]
+        return common_words_by_grade
     def calcRank(self):
         """
         Calculates and assigns a rank to each district based on median income.
@@ -294,9 +418,10 @@ class RedLines:
         rank
 
         """
-        
-
-        pass
+        total_population = sum([district.percent for district in self.districts if district.percent is not None])
+        for district in self.districts:
+            if district.percent is not None:
+                district.rank = district.percent / total_population * 100
 
     def calcPopu(self):
         """
@@ -322,7 +447,32 @@ class RedLines:
         percent
 
         """
-        pass
+        import requests
+        for district in self.districts:
+            # Prepare the API request parameters
+            params = {
+                'get': 'B02001_003E,B02001_001E',
+                'for': 'tract:' + district.censusTract,
+                'in': 'state:26',  # Michigan state code
+                'key': 'YOUR_API_KEY'  # Replace 'YOUR_API_KEY' with your actual API key
+            }
+            # Make the API request
+            response = requests.get("https://api.census.gov/data/2018/acs/acs5", params=params)
+
+            # Parse the response and update district's percentage of Black residents
+            if response.status_code == 200:
+                data = response.json()
+                try:
+                    total_population = int(data[1][1])
+                    black_population = int(data[1][0])
+                    if total_population == 0:
+                        district.percent = 1
+                    else:
+                        district.percent = round((black_population / total_population) * 100, 2)
+                except (KeyError, IndexError):
+                    district.percent = 0
+            else:
+                print("Error fetching population data for district:", district.id)
 
 
     def comment(self):
@@ -332,7 +482,9 @@ class RedLines:
         findings. And a few sentences(more than 50 words) about how this exercise did or did not change your understanding of
         residential segregation. Print you thought in the method.
         '''
-        print("")
+        self.calcRank()
+        self.calcIncomeStats()
+        self.findCommonWords()
 
 
 # Use main function to test your class implementations.
